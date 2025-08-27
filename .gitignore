@@ -1,17 +1,32 @@
-# Sensitive files
+# Sensitive configuration files
 config.properties
-*.png
-*.log
+notes.txt
 
-# Python files
+# AWS credentials
+.aws/
+*.pem
+*.key
+
+# Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
 .Python
 env/
 venv/
 .venv/
+
+# Screenshots and debug files
+*.png
+debug_*.png
+after_cpt_*.png
+before_cpt_*.png
+final_cpt_result.png
+ecw_*.png
+
+# Logs
+*.log
 
 # IDE files
 .vscode/

@@ -2,18 +2,39 @@ from playwright.sync_api import sync_playwright
 import configparser
 import os
 import time
+import json
+import sys
+
+# Import our CPT population module
+try:
+    import cpt_population
+    print("Successfully imported cpt_population module")
+except ImportError as e:
+    print(f"Error importing cpt_population: {e}")
+    print("Make sure cpt_population.py is in the same directory")
+    sys.exit(1)
 
 def load_config():
     config = configparser.ConfigParser()
     config.read('config.properties')
     return config
 
+def format_notes(notes_text):
+    """Format multi-line notes by replacing \\n with actual newlines"""
+    if not notes_text:
+        return ""
+    # Replace literal \n with actual newlines
+    formatted_notes = notes_text.replace('\\n', '\n')
+    # Also handle other common escape sequences
+    formatted_notes = formatted_notes.replace('\\t', '\t')
+    return formatted_notes.strip()
+
 def open_ecw_login():
     # Load configuration
     config = load_config()
     
     username = config.get('DEFAULT', 'username')
-    password = config.get('DEFAULT', 'password')  # Already reading password from config
+    password = config.get('DEFAULT', 'password')
     url = config.get('DEFAULT', 'url')
     provider_name = config.get('DEFAULT', 'provider_name')
     target_date = config.get('DEFAULT', 'target_date')
@@ -21,26 +42,22 @@ def open_ecw_login():
     screenshot = config.getboolean('BROWSER', 'screenshot')
     
     with sync_playwright() as p:
-        # Launch browser
-        browser = p.chromium.launch(headless=headless, slow_mo=1000)  # slow_mo adds delay between actions
+        browser = p.chromium.launch(headless=headless, slow_mo=1000)
         page = browser.new_page()
         
         try:
-            # Navigate to login page
             print("Opening ECW login page...")
-            page.goto(url, wait_until='networkidle')  # Fixed: use url variable instead of config.URL
+            page.goto(url, wait_until='networkidle')
             
             print(f"Page title: {page.title()}")
             
-            # Take initial screenshot
             if screenshot:
                 page.screenshot(path="ecw_login_before.png")
                 print("Screenshot saved as ecw_login_before.png")
             
-            # Wait a moment for page to fully load
             page.wait_for_timeout(2000)
             
-            # Try common username field selectors
+            # Username field selectors
             username_selectors = [
                 'input[name="username"]',
                 'input[name="userName"]',
@@ -54,7 +71,7 @@ def open_ecw_login():
                 '#user'
             ]
             
-            # Try common password field selectors
+            # Password field selectors
             password_selectors = [
                 'input[name="password"]',
                 'input[name="pwd"]',
@@ -65,7 +82,7 @@ def open_ecw_login():
                 '#pwd'
             ]
             
-            # Try common login button selectors
+            # Login button selectors
             login_button_selectors = [
                 'input[type="submit"]',
                 'button[type="submit"]',
@@ -94,15 +111,8 @@ def open_ecw_login():
             
             if not username_filled:
                 print("WARNING: Could not find username field!")
-                print("Available input fields:")
-                inputs = page.query_selector_all('input')
-                for i, input_elem in enumerate(inputs):
-                    input_type = input_elem.get_attribute('type') or 'text'
-                    input_name = input_elem.get_attribute('name') or 'no name'
-                    input_id = input_elem.get_attribute('id') or 'no id'
-                    print(f"  Input {i+1}: type='{input_type}', name='{input_name}', id='{input_id}'")
             
-            # Step 1: Try to fill password on the same page (in case it's a single-step login)
+            # Try to fill password on the same page
             password_filled = False
             for selector in password_selectors:
                 try:
@@ -118,12 +128,11 @@ def open_ecw_login():
             if not password_filled:
                 print("Password field not found on current page - might be a two-step login")
             
-            # Take screenshot after filling fields
             if screenshot:
                 page.screenshot(path="ecw_login_filled.png")
                 print("Screenshot saved as ecw_login_filled.png")
             
-            # Find and click Next/Login button (for username step)
+            # Find and click Next/Login button
             login_clicked = False
             for selector in login_button_selectors:
                 try:
@@ -138,12 +147,6 @@ def open_ecw_login():
             
             if not login_clicked:
                 print("WARNING: Could not find login button!")
-                print("Available buttons and submit inputs:")
-                buttons = page.query_selector_all('button, input[type="submit"]')
-                for i, button in enumerate(buttons):
-                    button_text = button.text_content() or button.get_attribute('value') or 'no text'
-                    button_type = button.get_attribute('type') or 'button'
-                    print(f"  Button {i+1}: type='{button_type}', text='{button_text}'")
             
             # Wait for navigation after clicking Next/Login
             if login_clicked:
@@ -154,19 +157,16 @@ def open_ecw_login():
                 except:
                     print("Page might still be loading...")
             
-            # Step 2: Check if we're now on password page and handle it
+            # Handle password page if needed
             if "getPwdPage" in page.url or not password_filled:
                 print("Now on password page - looking for password field...")
-                
-                # Wait a moment for the password page to fully load
                 page.wait_for_timeout(2000)
                 
-                # Take screenshot of password page
                 if screenshot:
                     page.screenshot(path="ecw_password_page.png")
                     print("Screenshot saved as ecw_password_page.png")
                 
-                # Try to find and fill password field on the new page
+                # Fill password on password page
                 password_filled_step2 = False
                 for selector in password_selectors:
                     try:
@@ -181,20 +181,12 @@ def open_ecw_login():
                 
                 if not password_filled_step2:
                     print("WARNING: Could not find password field on password page!")
-                    print("Available input fields on password page:")
-                    inputs = page.query_selector_all('input')
-                    for i, input_elem in enumerate(inputs):
-                        input_type = input_elem.get_attribute('type') or 'text'
-                        input_name = input_elem.get_attribute('name') or 'no name'
-                        input_id = input_elem.get_attribute('id') or 'no id'
-                        print(f"  Input {i+1}: type='{input_type}', name='{input_name}', id='{input_id}'")
                 
-                # Take screenshot after filling password
                 if screenshot:
                     page.screenshot(path="ecw_password_filled.png")
                     print("Screenshot saved as ecw_password_filled.png")
                 
-                # Find and click login button on password page
+                # Click login button on password page
                 login_clicked_step2 = False
                 for selector in login_button_selectors:
                     try:
@@ -209,12 +201,6 @@ def open_ecw_login():
                 
                 if not login_clicked_step2:
                     print("WARNING: Could not find login button on password page!")
-                    print("Available buttons on password page:")
-                    buttons = page.query_selector_all('button, input[type="submit"]')
-                    for i, button in enumerate(buttons):
-                        button_text = button.text_content() or button.get_attribute('value') or 'no text'
-                        button_type = button.get_attribute('type') or 'button'
-                        print(f"  Button {i+1}: type='{button_type}', text='{button_text}'")
                 
                 # Wait for final login
                 if login_clicked_step2:
@@ -225,7 +211,6 @@ def open_ecw_login():
                     except:
                         print("Login might still be processing...")
             
-            # Take final screenshot
             if screenshot:
                 page.screenshot(path="ecw_login_after.png")
                 print("Screenshot saved as ecw_login_after.png")
@@ -233,22 +218,18 @@ def open_ecw_login():
             print(f"Current URL: {page.url}")
             print(f"Current page title: {page.title()}")
             
-            # After successful login, click "S" button and change date
+            # After successful login
             if "login" not in page.url.lower():
-                print("Login successful! Now clicking 'S' button and changing date...")
-                
-                # Wait for the main dashboard to load
+                print("Login successful! Now navigating to claims...")
                 page.wait_for_timeout(3000)
                 
-                # Take screenshot of dashboard
                 if screenshot:
                     page.screenshot(path="ecw_dashboard.png")
                     print("Screenshot saved as ecw_dashboard.png")
                 
-                # Click on the "S" button in top right
+                # Click "S" button
                 try:
-                    print("Looking for 'S' button in top right...")
-                    
+                    print("Looking for 'S' button...")
                     s_button = page.locator('text="S"').first
                     if s_button.is_visible():
                         print("Found 'S' button, clicking...")
@@ -257,110 +238,66 @@ def open_ecw_login():
                         page.wait_for_timeout(1000)
                     else:
                         print("Could not find 'S' button")
-                
                 except Exception as e:
                     print(f"Error clicking 'S' button: {e}")
-                
-                # Close any open submenus first
+
+                # Close submenus
                 try:
-                    print("Checking for open submenus and closing them...")
-                    
-                    # Press Escape key to close any open menus/dropdowns
+                    print("Closing any open submenus...")
                     page.keyboard.press('Escape')
                     page.wait_for_timeout(1000)
-                    
-                    # Click somewhere neutral on the page to close menus
                     page.click('body', position={'x': 400, 'y': 300})
                     page.wait_for_timeout(1000)
-                    
-                    # Look for any visible overlay or dropdown menus and close them
-                    menu_close_selectors = [
-                        '.dropdown-menu.show',
-                        '.open .dropdown-menu',
-                        '.submenu',
-                        '[aria-expanded="true"]'
-                    ]
-                    
-                    for selector in menu_close_selectors:
-                        try:
-                            menu = page.locator(selector).first
-                            if menu.is_visible():
-                                print(f"Found open menu: {selector}")
-                                # Try clicking outside the menu
-                                page.click('body', position={'x': 100, 'y': 100})
-                                page.wait_for_timeout(500)
-                        except:
-                            continue
-                    
-                    print("Submenus closed, proceeding with date navigation...")
-                    
+                    print("Submenus closed")
                 except Exception as e:
                     print(f"Error closing submenus: {e}")
 
-                # Click on the calendar widget to change the date
+                # Change calendar date
                 try:
-                    print(f"Looking for calendar widget to set date to: {target_date}")
-                    
-                    # Parse target date
+                    print(f"Setting calendar date to: {target_date}")
                     target_month, target_day, target_year = target_date.split('-')
                     target_day = int(target_day)
-                    
-                    print(f"Target day: {target_day}")
-                    
-                    date_changed = False
-                    
-                    # Look for calendar widget with specific class
-                    print("Looking for calendar widget with class 'icon icon-inputcalender'...")
                     
                     calendar_widget = page.locator('.icon.icon-inputcalender').first
                     
                     if calendar_widget.is_visible():
-                        print("✅ Found calendar widget, clicking to open...")
+                        print("Found calendar widget, clicking...")
                         calendar_widget.click()
-                        page.wait_for_timeout(2000)  # Wait for calendar to open
-                        
-                        # Look for the target date in the calendar
-                        print(f"Looking for date {target_day} in the calendar...")
+                        page.wait_for_timeout(2000)
                         
                         target_date_element = page.locator(f'text="{target_day}"').first
-                        
                         if target_date_element.is_visible():
-                            print(f"✅ Clicking on date {target_day} in calendar...")
+                            print(f"Clicking on date {target_day}...")
                             target_date_element.click()
                             page.wait_for_timeout(1000)
                             print(f"Successfully selected date {target_day}")
-                            date_changed = True
                         else:
-                            print(f"❌ Could not find date {target_day} in the calendar")
-                    
+                            print(f"Could not find date {target_day} in calendar")
                     else:
-                        print("❌ Could not find calendar widget with class 'icon icon-inputcalender'")
-                    
-                    if not date_changed:
-                        print(f"WARNING: Could not change date to {target_date}")
-                
+                        print("Could not find calendar widget")
+                        
                 except Exception as e:
-                    print(f"Error during calendar widget interaction: {e}")
-                
-                # Navigate to Billing via hamburger menu
+                    print(f"Error setting calendar date: {e}")
+
+                # Navigate to Billing > Claims
                 try:
                     print("Navigating to Billing via hamburger menu...")
                     
-                    # Click hamburger menu using specific ID and class
+                    # Click hamburger menu
                     hamburger = page.locator('#jellybean-panelLink4.navgator.mainMenu').first
                     if hamburger.is_visible():
                         print("Found hamburger menu, clicking...")
                         hamburger.click()
                         page.wait_for_timeout(2000)
                         
-                        # Click Billing using specific class
+                        # Click Billing
                         billing_menu = page.locator('.icon.nav-label.icon-label-bill').first
                         if billing_menu.is_visible():
                             print("Found billing menu, clicking...")
                             billing_menu.click()
                             page.wait_for_timeout(2000)
                             
-                            # Click Claims using SVG icon class
+                            # Click Claims
                             claims_icon = page.locator('.svgicon.svg-document1').first
                             if claims_icon.is_visible():
                                 print("Found Claims icon, clicking...")
@@ -368,17 +305,16 @@ def open_ecw_login():
                                 page.wait_for_timeout(3000)
                                 print("Successfully navigated to Claims")
                                 
-                                # Set dates in Claims page
+                                # Set service dates
                                 try:
                                     print(f"Setting Service Date range to: {target_date}")
                                     
-                                    # Find calendar icons for Service Date
                                     calendar_icons = page.locator('.icon.icon-inputcalender').all()
                                     
                                     if len(calendar_icons) >= 2:
                                         print("Found Service Date calendar icons...")
                                         
-                                        # Set FROM date (first calendar icon)
+                                        # Set FROM date
                                         print("Setting FROM date...")
                                         calendar_icons[0].click()
                                         page.wait_for_timeout(1000)
@@ -390,7 +326,7 @@ def open_ecw_login():
                                             print(f"Set FROM date to: {target_day}")
                                             page.wait_for_timeout(1000)
                                         
-                                        # Set TO date (second calendar icon)
+                                        # Set TO date
                                         print("Setting TO date...")
                                         calendar_icons[1].click()
                                         page.wait_for_timeout(1000)
@@ -403,9 +339,9 @@ def open_ecw_login():
                                         
                                         print("Successfully set both Service Date FROM and TO dates")
                                         
-                                        # Look for various Lookup button selectors
+                                        # Click initial Lookup button
                                         try:
-                                            print("Looking for Lookup button with multiple selectors...")
+                                            print("Looking for Lookup button...")
                                             
                                             lookup_selectors = [
                                                 'text="Lookup"',
@@ -509,9 +445,9 @@ def open_ecw_login():
                                                 except Exception as e:
                                                     print(f"Error clicking main Lookup button: {e}")
                                                 
-                                                # Click on claim# 38000 for Test, Manu
+                                                # Click on claim# 38000
                                                 try:
-                                                    print("Looking for claim# 38000 for Test, Manu...")
+                                                    print("Looking for claim# 38000...")
                                                     page.wait_for_timeout(2000)
                                                     
                                                     claim_selectors = [
@@ -541,128 +477,18 @@ def open_ecw_login():
                                                 except Exception as e:
                                                     print(f"Error clicking claim# 38000: {e}")
                                                 
-                                                # Add CPT code 99213 directly without clicking Add
-                                                try:
-                                                    print("Adding CPT code 99213 directly...")
-                                                    page.wait_for_timeout(2000)
-                                                    
-                                                    # Enter CPT code 99213 directly in the Code field (skip Add button)
-                                                    code_field = page.locator('#billingClaimIpt34').first
-                                                    if code_field.is_visible():
-                                                        print("Found Code field, entering 99213...")
-                                                        code_field.fill("99213")
-                                                        print("Entered 99213 in Code field")
-                                                        print("DEBUG: Current page URL after entering 99213:", page.url)
-                                                        print("DEBUG: Current page title after entering 99213:", page.title())
-                                                        
-                                                        # Wait a moment before Tab
-                                                        print("DEBUG: Waiting 1 second before pressing Tab...")
-                                                        page.wait_for_timeout(1000)
-                                                        
-                                                        # Press Tab to populate other fields
-                                                        print("DEBUG: About to press Tab key...")
-                                                        page.keyboard.press('Tab')
-                                                        print("DEBUG: Tab key pressed")
-                                                        
-                                                        # Check what happened after Tab
-                                                        page.wait_for_timeout(2000)
-                                                        print("DEBUG: Current page URL after Tab:", page.url)
-                                                        print("DEBUG: Current page title after Tab:", page.title())
-                                                        
-                                                        # Check if we're still on claims page or if lookup opened
-                                                        if "assessment" in page.url.lower() or "Select Assessments" in page.title():
-                                                            print("DEBUG: ❌ Assessment lookup page opened! This is the problem.")
-                                                            print("DEBUG: Trying to close this page and return to claims...")
-                                                            
-                                                            # Try to close this popup/page
-                                                            try:
-                                                                # Look for close button or press Escape
-                                                                close_selectors = [
-                                                                    'button:has-text("Close")',
-                                                                    'button:has-text("Cancel")',
-                                                                    '.close',
-                                                                    '[aria-label="Close"]'
-                                                                ]
-                                                                
-                                                                closed = False
-                                                                for selector in close_selectors:
-                                                                    try:
-                                                                        close_btn = page.locator(selector).first
-                                                                        if close_btn.is_visible():
-                                                                            print(f"DEBUG: Found close button: {selector}")
-                                                                            close_btn.click()
-                                                                            closed = True
-                                                                            break
-                                                                    except:
-                                                                        continue
-                                                                
-                                                                if not closed:
-                                                                    print("DEBUG: Trying Escape key to close...")
-                                                                    page.keyboard.press('Escape')
-                                                                
-                                                                page.wait_for_timeout(1000)
-                                                                print("DEBUG: Attempted to close assessment page")
-                                                                
-                                                            except Exception as e:
-                                                                print(f"DEBUG: Error closing assessment page: {e}")
-                                                        else:
-                                                            print("DEBUG: ✅ Still on correct page, CPT auto-population should work")
-                                                        
-                                                        print("Successfully added CPT code 99213")
-                                                    else:
-                                                        print("Could not find Code field")
-                                                        
-                                                except Exception as e:
-                                                    print(f"Error adding CPT code: {e}")
+                                                # ==================================================
+                                                # CALL CPT POPULATION MODULE FROM HERE
+                                                # ==================================================
+                                                print("\n" + "=" * 60)
+                                                print("HANDING OFF TO CPT POPULATION MODULE")
+                                                print("=" * 60)
                                                 
-                                                # Add ICD code A42.1 in the ICD Codes section
-                                                try:
-                                                    print("Adding ICD code A42.1 in ICD Codes section...")
-                                                    page.wait_for_timeout(2000)
-                                                    
-                                                    # Find the ICD Codes header section
-                                                    icd_header = page.locator('h4:has-text("ICD Codes")').first
-                                                    if icd_header.is_visible():
-                                                        print("Found ICD Codes header section")
-                                                        
-                                                        # Look for the Code column input field under ICD Codes section
-                                                        icd_code_selectors = [
-                                                            'input[ng-model="newICD"]',
-                                                            'input[class*="claimICDInput"]',
-                                                            'input[id*="txtnewIcd"]',
-                                                            'input[ng-keydown*="lookupICDCode"]'
-                                                        ]
-                                                        
-                                                        icd_field_found = False
-                                                        for selector in icd_code_selectors:
-                                                            try:
-                                                                icd_field = page.locator(selector).first
-                                                                if icd_field.is_visible():
-                                                                    print(f"Found ICD Code input field with selector: {selector}")
-                                                                    icd_field.fill("A42.1")
-                                                                    print("Entered A42.1 in ICD Code field")
-                                                                    
-                                                                    # Press Tab to populate other fields
-                                                                    print("Pressing Tab to populate ICD fields...")
-                                                                    page.keyboard.press('Tab')
-                                                                    page.wait_for_timeout(2000)
-                                                                    
-                                                                    print("Successfully added ICD code A42.1")
-                                                                    icd_field_found = True
-                                                                    break
-                                                            except:
-                                                                continue
-                                                        
-                                                        if not icd_field_found:
-                                                            print("Could not find ICD Code input field under ICD Codes section")
-                                                    else:
-                                                        print("Could not find ICD Codes header section")
-                                                        
-                                                except Exception as e:
-                                                    print(f"Error adding ICD code: {e}")
+                                                # Call the CPT population function from the separate module
+                                                cpt_population.populate_cpt_and_icd_codes(page, config)
                                                 
                                             else:
-                                                print("Could not find any Lookup button")
+                                                print("Could not find Lookup button")
                                                 
                                         except Exception as e:
                                             print(f"Error in lookup process: {e}")
@@ -674,7 +500,7 @@ def open_ecw_login():
                                     print(f"Error setting dates in Claims page: {e}")
                                 
                             else:
-                                print("Could not find Claims icon with class svgicon svg-document1")
+                                print("Could not find Claims icon")
                         else:
                             print("Could not find billing menu")
                     else:
@@ -683,7 +509,7 @@ def open_ecw_login():
                 except Exception as e:
                     print(f"Error navigating to Claims: {e}")
 
-                # Take final screenshot after changes
+                # Take final screenshot
                 page.wait_for_timeout(2000)
                 if screenshot:
                     page.screenshot(path="ecw_final_state.png")
