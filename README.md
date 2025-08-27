@@ -1,37 +1,72 @@
-# eClinicalWorks Billing Automation
+# eClinicalWorks Billing Automation with AI-Powered CPT Prediction
 
-This Python script automates the billing workflow in eClinicalWorks, including login, navigation, claims lookup, and code entry.
+This Python automation suite combines web automation with AWS Bedrock AI to streamline the billing workflow in eClinicalWorks, including intelligent CPT code prediction from clinical notes.
 
 ## Features
 
+### Core Automation
 - **Automated Login**: Two-step login process (username → password)
 - **Provider Selection**: Clicks "S" button in top-right corner
 - **Date Selection**: Uses calendar widget to select target date
 - **Claims Navigation**: Navigates to Claims via hamburger menu
 - **Claims Lookup**: Searches for specific claims with date filters
-- **Code Entry**: Automatically adds CPT and ICD codes with auto-population
+
+### AI-Powered Code Prediction
+- **Clinical Notes Processing**: Reads clinical notes from `notes.txt`
+- **AWS Bedrock Integration**: Uses Claude/other LLMs to predict CPT codes
+- **Intelligent Code Entry**: Automatically populates predicted CPT codes with modifiers
+- **Multi-Row Population**: Handles multiple CPT codes with auto-row creation
+- **ICD Code Entry**: Automatically adds appropriate ICD codes
+
+### Advanced Code Handling
+- **Dynamic Row Creation**: Uses ECW's built-in row creation (Tab triggers new rows)
+- **Modifier Support**: Populates M1 and M2 modifiers in correct columns
+- **Multiple CPT Codes**: Processes all predicted codes sequentially
+- **Auto-Population**: Leverages ECW's field auto-population features
+
+## Architecture
+
+The system consists of two main modules:
+
+### 1. `web_automation.py` (Main Navigation Module)
+- Handles login and navigation to claims
+- Manages ECW interface interactions
+- Coordinates with CPT population module
+
+### 2. `cpt_population.py` (AI-Powered Code Module)
+- Integrates with AWS Bedrock for CPT prediction
+- Processes clinical notes and generates structured predictions
+- Populates CPT codes and modifiers in ECW interface
+- Handles ICD code entry
 
 ## Prerequisites
 
 - Python 3.7+
 - Playwright library
+- AWS Bedrock access with appropriate model permissions
 - Valid eClinicalWorks credentials
-- Access to eClinicalWorks system
+- Clinical notes file (`notes.txt`)
+- Optional custom prompt file (`prompt.txt`)
 
 ## Installation
 
 1. Install required packages:
 ```bash
-pip install playwright
+pip install playwright boto3 configparser
 playwright install chromium
 ```
 
-2. Create `config.properties` file in the same directory as the script
+2. Configure AWS credentials for Bedrock access:
+```bash
+aws configure
+# or set environment variables AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+```
+
+3. Create required files in the same directory as the scripts
 
 ## Configuration
 
-Create a `config.properties` file with the following structure:
-
+### `config.properties`
 ```ini
 [DEFAULT]
 username=your_username
@@ -39,6 +74,7 @@ password=your_password
 url=https://your_ecw_url/mobiledoc/jsp/webemr/login/newLogin.jsp
 provider_name=LASTNAME,FIRSTNAME
 target_date=MM-DD-YYYY
+aws_region=us-east-1
 
 [BROWSER]
 headless=false
@@ -46,163 +82,208 @@ screenshot=true
 wait_timeout=5000
 ```
 
-### Configuration Parameters
+### `notes.txt`
+Contains the clinical notes that will be processed by AI:
+```
+Patient presents with lower back pain, duration 3 weeks.
+Physical therapy evaluation and treatment provided.
+Electrical stimulation therapy administered.
+...
+```
 
-- **username**: Your eClinicalWorks username
-- **password**: Your eClinicalWorks password
-- **url**: Full URL to the eClinicalWorks login page
-- **provider_name**: Provider name in "LASTNAME,FIRSTNAME" format
-- **target_date**: Date to search for in "MM-DD-YYYY" format
-- **headless**: Set to `true` to run browser in background
-- **screenshot**: Set to `true` to capture screenshots for debugging
-- **wait_timeout**: Timeout value in milliseconds
+### `prompt.txt` (Optional)
+Custom prompt template for AI processing:
+```
+Analyze the following clinical notes and predict appropriate CPT codes.
+Return JSON format with code, modifier1, modifier2, and description fields.
+[Your custom instructions...]
+```
 
 ## Workflow
 
-### 1. Login Process
-- Navigates to eClinicalWorks login page
-- Enters username and clicks Next
-- Enters password on second screen
-- Completes two-step authentication
+### 1. AI-Powered CPT Prediction
+- Reads clinical notes from `notes.txt`
+- Sends notes to AWS Bedrock (Claude/other LLMs)
+- Processes AI response to extract CPT codes and modifiers
+- Validates and structures the predicted codes
 
-### 2. Dashboard Navigation
-- Clicks "S" button in top-right corner
-- Closes any open submenus
-- Uses calendar widget to select target date
+### 2. ECW Navigation (Same as before)
+- Completes login process
+- Navigates to target claim
+- Prepares interface for code entry
 
-### 3. Claims Access
-- Opens hamburger menu (top-left corner)
-- Navigates to Billing section
-- Clicks on Claims submenu
-- Sets Service Date FROM and TO fields
-- Performs claims lookup
+### 3. Intelligent Code Population
+- **First CPT Code**: Populates the "*" row using `input[ng-model="newCPT"]`
+- **Subsequent Codes**: Uses Tab-triggered auto-row creation
+- **Modifier Handling**: Adds M1 and M2 modifiers to respective columns
+- **Auto-Population**: Leverages ECW's field validation and auto-fill
 
-### 4. Claims Processing
-- Selects "All Claims" from status dropdown
-- Chooses specific patient (Test, Manu)
-- Clicks main Lookup button
-- Opens specific claim (e.g., claim# 38000)
+### 4. Code Entry Process
+```
+CPT Code Entry Sequence:
+1. Target "*" row (newCPT field)
+2. Enter CPT code (e.g., "99213")
+3. Press Tab → ECW auto-populates fields and creates new "*" row
+4. Add M1 modifier to column 8 of same row
+5. Add M2 modifier to column 9 of same row
+6. Repeat for next CPT code using new "*" row
+```
 
-### 5. Code Entry
-- **CPT Code**: Enters "99213" in CPT/HCPCS Code field and presses Tab
-- **ICD Code**: Enters "A42.1" in ICD Codes section and presses Tab
-- Auto-population occurs for related fields
+## AI Integration Details
 
-## Key Selectors Used
+### Bedrock Model Support
+- **Claude (Anthropic)**: Primary model for clinical note analysis
+- **Custom Prompts**: Supports tailored prompt engineering
+- **JSON Response Parsing**: Structured code extraction
 
-### Navigation Elements
-- Hamburger menu: `#jellybean-panelLink4.navgator.mainMenu`
-- Billing menu: `.icon.nav-label.icon-label-bill`
-- Claims icon: `.svgicon.svg-document1`
+### Predicted Data Structure
+```json
+[
+  {
+    "code": "99213",
+    "modifier1": "25",
+    "modifier2": "",
+    "description": "Office visit, established patient, level 3"
+  },
+  {
+    "code": "97750",
+    "modifier1": "",
+    "modifier2": "",
+    "description": "Physical therapy evaluation"
+  }
+]
+```
 
-### Form Elements
-- Calendar widget: `.icon.icon-inputcalender`
-- CPT Code field: `#billingClaimIpt34`
-- ICD Code field: `input[ng-model="newICD"]`
-- Claim status: `#claimStatusCodeId`
-- Lookup button: `#btnclaimlookup`
+## Key Selectors and Field Mapping
+
+### CPT Code Population
+- **New CPT Field**: `input[ng-model="newCPT"]` or `#billingClaimIpt34`
+- **M1 Modifier**: Column 8 (`td:nth-child(8) input`)
+- **M2 Modifier**: Column 9 (`td:nth-child(9) input`)
+- **Row Targeting**: `table tbody tr:nth-child(N)` for specific rows
+
+### ICD Code Entry
+- **ICD Field**: `input[ng-model="newICD"]`
+- **ICD Section**: `h4:has-text("ICD Codes")`
 
 ## Usage
 
-1. Ensure `config.properties` is properly configured
-2. Run the script:
+1. Prepare clinical notes in `notes.txt`
+2. Configure AWS Bedrock access
+3. Set up `config.properties`
+4. Run the automation:
 ```bash
 python web_automation.py
 ```
 
-3. The browser will open and automation will begin
-4. Monitor console output for progress and debugging information
-5. Screenshots will be saved at key steps (if enabled)
+### Expected Output
+```
+GETTING CPT CODE PREDICTIONS FROM BEDROCK
+Loaded notes from notes.txt (1250 characters)
+Calling Bedrock API...
+Successfully parsed 4 CPT codes from Bedrock response
 
-## Screenshots Generated
+PREDICTED CPT CODES:
+1. CPT: 99213
+   Modifier1: 25
+   Description: Office visit, established patient
 
-- `ecw_login_before.png` - Initial login page
-- `ecw_login_filled.png` - After entering username
-- `ecw_password_page.png` - Password entry page
-- `ecw_password_filled.png` - After entering password
-- `ecw_login_after.png` - After successful login
-- `ecw_dashboard.png` - Main dashboard
-- `ecw_final_state.png` - Final state after automation
+2. CPT: 51784
+   Description: Electromyography studies
 
-## Error Handling
+[Login and navigation process...]
 
-The script includes comprehensive error handling:
-- Multiple selector attempts for each element
-- Graceful fallbacks if primary methods fail
-- Detailed logging for troubleshooting
-- Screenshot capture on errors
+STARTING CPT AND ICD CODE POPULATION
+Processing CPT code 1: 99213
+Found * row CPT field: input[ng-model="newCPT"]
+Added M1: 25 to row 1
+Processing CPT code 2: 51784
+[...]
+```
 
-## Debugging Features
+## Advanced Features
 
-- **Verbose logging**: Shows each step of the automation process
-- **URL/Title tracking**: Monitors page changes
-- **Element detection**: Reports when elements are found or missing
-- **Screenshot capture**: Visual record of automation progress
+### Modifier Management
+- **Automatic Placement**: M1/M2 modifiers placed in correct table columns
+- **Row-Specific**: Each CPT code's modifiers stay with their respective row
+- **Visual Debugging**: Color-coded field highlighting during population
+
+### Error Handling & Debugging
+- **Field Detection**: Multiple selector strategies for robust field finding
+- **Screenshot Capture**: Visual debugging at each step
+- **Bedrock Failover**: Graceful handling of AI service issues
+- **Row Creation Monitoring**: Validates ECW's auto-row creation
+
+### Multiple Code Support
+- **Sequential Processing**: Handles 4+ CPT codes automatically
+- **Row Auto-Creation**: Leverages ECW's Tab-triggered row creation
+- **No Add Button**: Uses native ECW behavior instead of clicking Add
 
 ## Troubleshooting
 
-### Common Issues
+### AI/Bedrock Issues
+- **No Response**: Check AWS credentials and Bedrock model access
+- **Invalid JSON**: Review prompt.txt formatting
+- **Poor Predictions**: Improve clinical notes detail or customize prompt
 
-1. **Login fails**: Check username/password in config
-2. **Calendar not found**: Verify target_date format (MM-DD-YYYY)
-3. **Claims not found**: Ensure provider_name matches exactly
-4. **Code entry fails**: Check if claim is in editable state
+### Code Population Issues
+- **Modifiers in Wrong Column**: Verify table structure hasn't changed
+- **Missing Rows**: Ensure ECW's auto-row creation is working
+- **Field Not Found**: Check for ECW interface updates
 
-### Debug Information
-
-The script provides detailed debug output including:
-- Current page URLs
-- Page titles
-- Element visibility status
-- Action completion confirmations
+### Debug Screenshots
+- `before_cpt_population.png` - State before code entry
+- `after_cpt_1_99213.png` - After first CPT code
+- `debug_no_field_row_X.png` - Field detection failures
 
 ## Customization
 
-### Adding New Codes
-
-To add different CPT or ICD codes, modify the script:
-
-```python
-# For CPT codes
-code_field.fill("your_cpt_code")
-
-# For ICD codes  
-icd_field.fill("your_icd_code")
+### Custom AI Prompts
+Create `prompt.txt` with specific instructions:
+```
+You are a medical coding expert. Analyze clinical notes and return CPT codes.
+Focus on E/M codes, procedures, and diagnostic services.
+Include appropriate modifiers for same-day services.
 ```
 
-### Changing Date Format
+### Adding New Code Types
+Extend the system to handle additional code types by modifying the parsing logic in `cpt_population.py`.
 
-Update the `target_date` parsing in the script if using different date formats.
+### Different ECW Versions
+Update field selectors if ECW interface changes:
+```python
+# Update selectors in cpt_population.py
+code_field_selectors = [
+    'your_new_selector',
+    'input[ng-model="newCPT"]',  # fallback
+]
+```
 
-### Adding New Providers
+## Security & Compliance
 
-Update the `provider_name` in config.properties with the correct format.
+- **AWS Credentials**: Use IAM roles or secure credential management
+- **PHI Handling**: Ensure clinical notes comply with HIPAA requirements
+- **Audit Trail**: Maintain logs of all automated coding actions
+- **Human Oversight**: Validate AI predictions before claim submission
 
-## Security Notes
+## Performance Optimization
 
-- Keep `config.properties` secure and never commit credentials to version control
-- Use environment variables for sensitive information in production
-- Regularly update passwords and review access logs
-
-## Limitations
-
-- Designed specifically for eClinicalWorks interface
-- Requires specific element IDs and classes (may need updates if UI changes)
-- Limited to current workflow (login → claims → code entry)
-- Browser must remain visible when `headless=false`
-
-## Support
-
-For issues or questions:
-1. Check console output for error messages
-2. Review screenshot files for visual debugging
-3. Verify config.properties settings
-4. Ensure eClinicalWorks interface hasn't changed
+- **Bedrock Caching**: Implement response caching for similar notes
+- **Batch Processing**: Process multiple claims in sequence
+- **Parallel Execution**: Run multiple browser instances for high volume
 
 ## Version History
 
-- **v1.0**: Initial automation with login and basic navigation
-- **v1.1**: Added calendar widget and date selection
-- **v1.2**: Implemented claims navigation and lookup
-- **v1.3**: Added CPT and ICD code entry with auto-population
-- **v1.4**: Enhanced error handling and debugging features
+- **v2.0**: Added AWS Bedrock integration and AI-powered CPT prediction
+- **v2.1**: Implemented multiple CPT code support with auto-row creation
+- **v2.2**: Added modifier support (M1/M2) with correct column targeting
+- **v2.3**: Enhanced error handling and debugging features
+- **v1.4**: Base automation (login, navigation, manual code entry)
+
+## Future Enhancements
+
+- Support for additional AI models (GPT-4, etc.)
+- Real-time code validation against payer rules
+- Integration with coding reference databases
+- Batch processing for multiple claims
+- Advanced reporting and analytics
