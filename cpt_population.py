@@ -69,25 +69,53 @@ def get_predicted_cpt_codes(clinical_notes):
                 print(f"Attempt {attempt + 1}: No response from Bedrock")
                 continue
             
-            # Quick check - parse and count codes
+            # Quick check - parse and count codes, also check for missing CPT code fields
             temp_parsed = bedrock_cpt_predictor.parse_json_response(predicted_codes_text)
             code_count = 0
+            missing_cpt_codes = 0
             
             if temp_parsed:
                 if isinstance(temp_parsed, list):
                     code_count = len(temp_parsed)
+                    # Check each item for missing 'code' field
+                    for item in temp_parsed:
+                        if isinstance(item, dict):
+                            cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                            if not cpt_code_value.strip():
+                                missing_cpt_codes += 1
                 elif isinstance(temp_parsed, dict):
                     if 'cpt_codes' in temp_parsed:
-                        code_count = len(temp_parsed['cpt_codes'])
+                        code_list = temp_parsed['cpt_codes']
+                        code_count = len(code_list)
+                        for item in code_list:
+                            if isinstance(item, dict):
+                                cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                                if not cpt_code_value.strip():
+                                    missing_cpt_codes += 1
                     elif 'codes' in temp_parsed:
-                        code_count = len(temp_parsed['codes'])
+                        code_list = temp_parsed['codes']
+                        code_count = len(code_list)
+                        for item in code_list:
+                            if isinstance(item, dict):
+                                cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                                if not cpt_code_value.strip():
+                                    missing_cpt_codes += 1
             
-            print(f"Attempt {attempt + 1}: Received {code_count} CPT codes")
+            print(f"Attempt {attempt + 1}: Received {code_count} CPT codes, {missing_cpt_codes} missing CPT code values")
             
-            # Check if we have enough codes
-            if code_count >= min_expected_codes:
-                print(f"✓ Received sufficient CPT codes ({code_count})")
+            # Check if we have enough codes and no missing CPT code fields
+            if code_count >= min_expected_codes and missing_cpt_codes == 0:
+                print(f"✓ Received sufficient CPT codes ({code_count}) with all code fields populated")
                 break
+            elif missing_cpt_codes > 0:
+                print(f"⚠ {missing_cpt_codes} CPT entries are missing code values")
+                if attempt < max_retries - 1:
+                    print("Retrying with enhanced prompt for missing CPT codes...")
+                    # Add emphasis to the prompt for retry
+                    enhanced_prompt = bedrock_prompt + f"\n\nCRITICAL: {missing_cpt_codes} CPT entries are missing the 'code' field. You MUST include valid CPT code numbers (like 99213, 91122, etc.) in the 'code' field for each entry. Do not leave any 'code' fields empty or null."
+                    bedrock_prompt = enhanced_prompt
+                else:
+                    print(f"Using result with {missing_cpt_codes} missing CPT code values (all retries exhausted)")
             elif code_count > 0:
                 print(f"⚠ Only received {code_count} codes, expected at least {min_expected_codes}")
                 if attempt < max_retries - 1:

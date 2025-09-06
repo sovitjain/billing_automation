@@ -33,6 +33,112 @@ def load_config():
     config.read('config.properties')
     return config
 
+def debug_manometry_status(clinical_notes):
+    """
+    Debug function to check whether anorectal manometry was performed or deferred
+    Based on prompt.txt rules: Remove cpt 91122 if Anorectal manometry was not done, deferred, cancelled, or unavailable
+    """
+    print("=" * 60)
+    print("🔍 DEBUG: ANORECTAL MANOMETRY STATUS CHECK")
+    print("=" * 60)
+    
+    # Convert to lowercase for case-insensitive matching
+    notes_lower = clinical_notes.lower()
+    
+    # Keywords that indicate manometry was deferred/not done/cancelled/unavailable
+    negative_keywords = [
+        'anorectal manometry was deferred',
+        'anorectal manometry deferred',
+        'manometry was deferred',
+        'manometry deferred',
+        'anorectal manometry was not done',
+        'anorectal manometry not done',
+        'manometry was not done',
+        'manometry not done',
+        'anorectal manometry was cancelled',
+        'anorectal manometry cancelled',
+        'manometry was cancelled',
+        'manometry cancelled',
+        'anorectal manometry was unavailable',
+        'anorectal manometry unavailable',
+        'manometry was unavailable',
+        'manometry unavailable'
+    ]
+    
+    # Keywords that indicate manometry was performed
+    positive_keywords = [
+        'anorectal manometry is performed',
+        'anorectal manometry was performed',
+        'anorectal manometry performed',
+        'manometry is performed',
+        'manometry was performed',
+        'manometry performed',
+        'anal pressure probe is used',
+        'anal pressure probe was used',
+        'anal pressure record'
+    ]
+    
+    # Check for negative indicators first
+    deferred_found = False
+    deferred_match = ""
+    for keyword in negative_keywords:
+        if keyword in notes_lower:
+            deferred_found = True
+            deferred_match = keyword
+            break
+    
+    # Check for positive indicators
+    performed_found = False
+    performed_match = ""
+    for keyword in positive_keywords:
+        if keyword in notes_lower:
+            performed_found = True
+            performed_match = keyword
+            break
+    
+    print(f"📋 Clinical Notes Length: {len(clinical_notes)} characters")
+    print(f"🔍 Searching for manometry status indicators...")
+    print()
+    
+    # Show the result
+    if deferred_found and not performed_found:
+        print("🚫 RESULT: Anorectal manometry was DEFERRED/NOT DONE")
+        print(f"   Found keyword: '{deferred_match}'")
+        print("   ❌ CPT Code 91122 should be REMOVED")
+        print("   Reason: Manometry was not performed")
+    elif performed_found and not deferred_found:
+        print("✅ RESULT: Anorectal manometry was PERFORMED")
+        print(f"   Found keyword: '{performed_match}'")
+        print("   ✅ CPT Code 91122 should be KEPT")
+        print("   Reason: Manometry was successfully performed")
+    elif deferred_found and performed_found:
+        print("⚠️  RESULT: CONFLICTING INFORMATION FOUND")
+        print(f"   Deferred keyword: '{deferred_match}'")
+        print(f"   Performed keyword: '{performed_match}'")
+        print("   🤔 MANUAL REVIEW REQUIRED")
+        print("   Recommendation: Check clinical notes manually")
+    else:
+        print("❓ RESULT: NO CLEAR MANOMETRY STATUS FOUND")
+        print("   No specific keywords found for performed/deferred status")
+        print("   🤔 MANUAL REVIEW REQUIRED")
+        print("   Recommendation: Check clinical notes for manometry details")
+    
+    print("=" * 60)
+    
+    # Also show a snippet of the notes around any found keywords
+    if deferred_found or performed_found:
+        keyword = deferred_match if deferred_found else performed_match
+        keyword_pos = notes_lower.find(keyword)
+        if keyword_pos != -1:
+            start = max(0, keyword_pos - 100)
+            end = min(len(clinical_notes), keyword_pos + len(keyword) + 100)
+            snippet = clinical_notes[start:end]
+            print("📝 RELEVANT SNIPPET FROM CLINICAL NOTES:")
+            print("-" * 40)
+            print(f"...{snippet}...")
+            print("-" * 40)
+            print()
+
 def main():
     """Main automation workflow"""
     print("=" * 80)
@@ -124,6 +230,12 @@ def main():
             if not clinical_notes or len(clinical_notes.strip()) < 50:
                 print("Progress Notes extraction failed or returned insufficient content")
                 clinical_notes = "No clinical notes extracted - using fallback"
+            else:
+                # Debug: Check anorectal manometry status in extracted clinical notes
+                print("\n" + "=" * 60)
+                print("STEP 6.5: ANORECTAL MANOMETRY STATUS DEBUG CHECK")
+                print("=" * 60)
+                debug_manometry_status(clinical_notes)
             
             # Step 7: Populate CPT and ICD Codes
             print("\n" + "=" * 60)

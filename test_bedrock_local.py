@@ -23,6 +23,112 @@ def load_config():
     config.read('config.properties')
     return config
 
+def debug_manometry_status(clinical_notes):
+    """
+    Debug function to check whether anorectal manometry was performed or deferred
+    Based on prompt.txt rules: Remove cpt 91122 if Anorectal manometry was not done, deferred, cancelled, or unavailable
+    """
+    print("=" * 60)
+    print("🔍 DEBUG: ANORECTAL MANOMETRY STATUS CHECK")
+    print("=" * 60)
+    
+    # Convert to lowercase for case-insensitive matching
+    notes_lower = clinical_notes.lower()
+    
+    # Keywords that indicate manometry was deferred/not done/cancelled/unavailable
+    negative_keywords = [
+        'anorectal manometry was deferred',
+        'anorectal manometry deferred',
+        'manometry was deferred',
+        'manometry deferred',
+        'anorectal manometry was not done',
+        'anorectal manometry not done',
+        'manometry was not done',
+        'manometry not done',
+        'anorectal manometry was cancelled',
+        'anorectal manometry cancelled',
+        'manometry was cancelled',
+        'manometry cancelled',
+        'anorectal manometry was unavailable',
+        'anorectal manometry unavailable',
+        'manometry was unavailable',
+        'manometry unavailable'
+    ]
+    
+    # Keywords that indicate manometry was performed
+    positive_keywords = [
+        'anorectal manometry is performed',
+        'anorectal manometry was performed',
+        'anorectal manometry performed',
+        'manometry is performed',
+        'manometry was performed',
+        'manometry performed',
+        'anal pressure probe is used',
+        'anal pressure probe was used',
+        'anal pressure record'
+    ]
+    
+    # Check for negative indicators first
+    deferred_found = False
+    deferred_match = ""
+    for keyword in negative_keywords:
+        if keyword in notes_lower:
+            deferred_found = True
+            deferred_match = keyword
+            break
+    
+    # Check for positive indicators
+    performed_found = False
+    performed_match = ""
+    for keyword in positive_keywords:
+        if keyword in notes_lower:
+            performed_found = True
+            performed_match = keyword
+            break
+    
+    print(f"📋 Clinical Notes Length: {len(clinical_notes)} characters")
+    print(f"🔍 Searching for manometry status indicators...")
+    print()
+    
+    # Show the result
+    if deferred_found and not performed_found:
+        print("🚫 RESULT: Anorectal manometry was DEFERRED/NOT DONE")
+        print(f"   Found keyword: '{deferred_match}'")
+        print("   ❌ CPT Code 91122 should be REMOVED")
+        print("   Reason: Manometry was not performed")
+    elif performed_found and not deferred_found:
+        print("✅ RESULT: Anorectal manometry was PERFORMED")
+        print(f"   Found keyword: '{performed_match}'")
+        print("   ✅ CPT Code 91122 should be KEPT")
+        print("   Reason: Manometry was successfully performed")
+    elif deferred_found and performed_found:
+        print("⚠️  RESULT: CONFLICTING INFORMATION FOUND")
+        print(f"   Deferred keyword: '{deferred_match}'")
+        print(f"   Performed keyword: '{performed_match}'")
+        print("   🤔 MANUAL REVIEW REQUIRED")
+        print("   Recommendation: Check clinical notes manually")
+    else:
+        print("❓ RESULT: NO CLEAR MANOMETRY STATUS FOUND")
+        print("   No specific keywords found for performed/deferred status")
+        print("   🤔 MANUAL REVIEW REQUIRED")
+        print("   Recommendation: Check clinical notes for manometry details")
+    
+    print("=" * 60)
+    
+    # Also show a snippet of the notes around any found keywords
+    if deferred_found or performed_found:
+        keyword = deferred_match if deferred_found else performed_match
+        keyword_pos = notes_lower.find(keyword)
+        if keyword_pos != -1:
+            start = max(0, keyword_pos - 100)
+            end = min(len(clinical_notes), keyword_pos + len(keyword) + 100)
+            snippet = clinical_notes[start:end]
+            print("📝 RELEVANT SNIPPET FROM CLINICAL NOTES:")
+            print("-" * 40)
+            print(f"...{snippet}...")
+            print("-" * 40)
+            print()
+
 def test_bedrock_prediction():
     """Test Bedrock CPT prediction using local files"""
     print("=" * 80)
@@ -95,25 +201,53 @@ def test_bedrock_prediction():
                 print(f"✗ Attempt {attempt + 1}: No response from Bedrock")
                 continue
             
-            # Quick check - parse and count codes
+            # Quick check - parse and count codes, also check for missing CPT code fields
             temp_parsed = bedrock_cpt_predictor.parse_json_response(predicted_codes_text)
             code_count = 0
+            missing_cpt_codes = 0
             
             if temp_parsed:
                 if isinstance(temp_parsed, list):
                     code_count = len(temp_parsed)
+                    # Check each item for missing 'code' field
+                    for item in temp_parsed:
+                        if isinstance(item, dict):
+                            cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                            if not cpt_code_value.strip():
+                                missing_cpt_codes += 1
                 elif isinstance(temp_parsed, dict):
                     if 'cpt_codes' in temp_parsed:
-                        code_count = len(temp_parsed['cpt_codes'])
+                        code_list = temp_parsed['cpt_codes']
+                        code_count = len(code_list)
+                        for item in code_list:
+                            if isinstance(item, dict):
+                                cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                                if not cpt_code_value.strip():
+                                    missing_cpt_codes += 1
                     elif 'codes' in temp_parsed:
-                        code_count = len(temp_parsed['codes'])
+                        code_list = temp_parsed['codes']
+                        code_count = len(code_list)
+                        for item in code_list:
+                            if isinstance(item, dict):
+                                cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
+                                if not cpt_code_value.strip():
+                                    missing_cpt_codes += 1
             
-            print(f"Attempt {attempt + 1}: Received {code_count} CPT codes")
+            print(f"Attempt {attempt + 1}: Received {code_count} CPT codes, {missing_cpt_codes} missing CPT code values")
             
-            # Check if we have enough codes
-            if code_count >= min_expected_codes:
-                print(f"✓ Received sufficient CPT codes ({code_count})")
+            # Check if we have enough codes and no missing CPT code fields
+            if code_count >= min_expected_codes and missing_cpt_codes == 0:
+                print(f"✓ Received sufficient CPT codes ({code_count}) with all code fields populated")
                 break
+            elif missing_cpt_codes > 0:
+                print(f"⚠ {missing_cpt_codes} CPT entries are missing code values")
+                if attempt < max_retries - 1:
+                    print("Retrying with enhanced prompt for missing CPT codes...")
+                    # Add emphasis to the prompt for retry
+                    enhanced_prompt = prompt_template + f"\n\nCRITICAL: {missing_cpt_codes} CPT entries are missing the 'code' field. You MUST include valid CPT code numbers (like 99213, 91122, etc.) in the 'code' field for each entry. Do not leave any 'code' fields empty or null."
+                    prompt_template = enhanced_prompt
+                else:
+                    print(f"Using result with {missing_cpt_codes} missing CPT code values (all retries exhausted)")
             elif code_count > 0:
                 print(f"⚠ Only received {code_count} codes, expected at least {min_expected_codes}")
                 if attempt < max_retries - 1:
@@ -133,6 +267,10 @@ def test_bedrock_prediction():
             return False
         
         print(f"✓ Bedrock response received: {len(predicted_codes_text)} characters")
+        
+        # Step 5.5: Debug - Check anorectal manometry status
+        print("\nStep 5.5: Checking anorectal manometry status...")
+        debug_manometry_status(notes_with_prefix)
         
         # Step 6: Parse and display results
         print("\nStep 6: Parsing Bedrock response...")

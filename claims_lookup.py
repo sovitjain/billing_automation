@@ -51,7 +51,7 @@ def perform_claims_lookup(page, screenshot=True):
 
 def set_claim_status(page):
     """
-    Set claim status to All Claims
+    Set claim status to Pending
     
     Args:
         page: Playwright page object
@@ -60,12 +60,12 @@ def set_claim_status(page):
         bool: True if status set successfully, False otherwise
     """
     try:
-        print("Setting Claim Status to All Claims...")
+        print("Setting Claim Status to Pending...")
         page.wait_for_timeout(1000)
         claim_status_dropdown = page.locator('#claimStatusCodeId').first
         if claim_status_dropdown.is_visible():
-            claim_status_dropdown.select_option(label="All Claims")
-            print("Selected 'All Claims' from status dropdown")
+            claim_status_dropdown.select_option(label="Pending")
+            print("Selected 'Pending' from status dropdown")
             page.wait_for_timeout(1000)
             return True
         else:

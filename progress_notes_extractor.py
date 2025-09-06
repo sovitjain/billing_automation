@@ -376,8 +376,16 @@ def extract_progress_notes(page, screenshot=True):
                 print("=" * 60)
                 print(f"Total notes length: {len(formatted_notes)} characters")
                 
-                # Save extracted notes to a file for review
+                # Save extracted notes to a file for review (delete existing file first)
                 try:
+                    import os
+                    
+                    # Delete existing file if it exists
+                    if os.path.exists('final_clinical_notes_for_bedrock.txt'):
+                        os.remove('final_clinical_notes_for_bedrock.txt')
+                        print("Deleted existing final_clinical_notes_for_bedrock.txt file")
+                    
+                    # Write new file
                     with open('final_clinical_notes_for_bedrock.txt', 'w', encoding='utf-8') as f:
                         f.write("FINAL CLINICAL NOTES THAT WILL BE SENT TO BEDROCK\n")
                         f.write("=" * 80 + "\n")
