@@ -1,5 +1,6 @@
 import sys
 import traceback
+import configparser
 
 # Import our bedrock CPT predictor module
 try:
@@ -10,20 +11,32 @@ except ImportError as e:
     print("Make sure bedrock_cpt_predictor.py is in the same directory")
     sys.exit(1)
 
-def get_predicted_cpt_codes(config):
-    """Get CPT codes from Bedrock predictor"""
+def load_config():
+    """Load configuration from config.properties"""
+    config = configparser.ConfigParser()
+    config.read('config.properties')
+    return config
+
+def get_predicted_cpt_codes(clinical_notes):
+    """Get CPT codes from Bedrock predictor using extracted clinical notes"""
     print("\n" + "=" * 50)
     print("GETTING CPT CODE PREDICTIONS FROM BEDROCK")
     print("=" * 50)
     
     try:
-        # Read notes from notes.txt
-        try:
-            notes = bedrock_cpt_predictor.read_text_file('notes.txt')
-            print(f"Loaded notes from notes.txt ({len(notes)} characters)")
-        except Exception as e:
-            print(f"Error reading notes.txt: {e}")
+        # Load configuration for Bedrock
+        config = load_config()
+        
+        # Use the provided clinical notes - no fallback to notes.txt
+        if not clinical_notes or len(clinical_notes.strip()) < 50:
+            print("ERROR: Clinical notes too short or empty!")
+            print("Cannot proceed without proper clinical notes extraction.")
+            print("Please check the Progress Notes extraction process.")
             return None
+        else:
+            # Append "Commercial plan" to the notes before sending to Bedrock
+            notes = f"Commercial plan: {clinical_notes}"
+            print(f"Using extracted clinical notes with Commercial plan prefix ({len(notes)} characters)")
         
         # Read prompt from prompt.txt (with fallback to default)
         try:
@@ -36,16 +49,61 @@ def get_predicted_cpt_codes(config):
         # Get AWS region from config
         aws_region = config.get('DEFAULT', 'aws_region', fallback='us-east-1')
         
-        # Get predictions from Bedrock
+        print(f"Sending {len(notes)} characters to Bedrock for CPT prediction...")
+
+        # Get predictions from Bedrock with retry logic
         print("Calling Bedrock API...")
-        predicted_codes_text = bedrock_cpt_predictor.get_cpt_codes_from_bedrock(
-            notes=notes,
-            prompt_template=bedrock_prompt,
-            region=aws_region
-        )
+        max_retries = 3
+        min_expected_codes = 4  # Commercial plan should have at least 4 CPT codes
+        
+        for attempt in range(max_retries):
+            print(f"Bedrock attempt {attempt + 1}/{max_retries}")
+            
+            predicted_codes_text = bedrock_cpt_predictor.get_cpt_codes_from_bedrock(
+                notes=notes,
+                prompt_template=bedrock_prompt,
+                region=aws_region
+            )
+            
+            if not predicted_codes_text:
+                print(f"Attempt {attempt + 1}: No response from Bedrock")
+                continue
+            
+            # Quick check - parse and count codes
+            temp_parsed = bedrock_cpt_predictor.parse_json_response(predicted_codes_text)
+            code_count = 0
+            
+            if temp_parsed:
+                if isinstance(temp_parsed, list):
+                    code_count = len(temp_parsed)
+                elif isinstance(temp_parsed, dict):
+                    if 'cpt_codes' in temp_parsed:
+                        code_count = len(temp_parsed['cpt_codes'])
+                    elif 'codes' in temp_parsed:
+                        code_count = len(temp_parsed['codes'])
+            
+            print(f"Attempt {attempt + 1}: Received {code_count} CPT codes")
+            
+            # Check if we have enough codes
+            if code_count >= min_expected_codes:
+                print(f"✓ Received sufficient CPT codes ({code_count})")
+                break
+            elif code_count > 0:
+                print(f"⚠ Only received {code_count} codes, expected at least {min_expected_codes}")
+                if attempt < max_retries - 1:
+                    print("Retrying with enhanced prompt...")
+                    # Add emphasis to the prompt for retry
+                    enhanced_prompt = bedrock_prompt + f"\n\nIMPORTANT: For Commercial plan, you MUST provide at least {min_expected_codes} CPT codes. Always include 99213 for office visit. If you only provided {code_count} codes, please add the missing codes."
+                    bedrock_prompt = enhanced_prompt
+                else:
+                    print(f"Using result with {code_count} codes (all retries exhausted)")
+            else:
+                print(f"Attempt {attempt + 1}: No valid codes parsed")
+                if attempt < max_retries - 1:
+                    print("Retrying...")
         
         if not predicted_codes_text:
-            print("No response from Bedrock")
+            print("All Bedrock attempts failed")
             return None
         
         print(f"Bedrock response received: {len(predicted_codes_text)} characters")
@@ -144,9 +202,7 @@ def add_cpt_codes_to_ecw_interface(page, cpt_codes):
     print("Note: Using * row for each CPT code, Tab will auto-create new rows")
     
     try:
-        # Take screenshot before starting
-        page.screenshot(path="before_cpt_population.png")
-        print("Screenshot saved: before_cpt_population.png")
+        # Starting CPT population
         
         # Process ALL CPT codes starting from the first one (99213)
         for i in range(len(cpt_codes)):
@@ -215,7 +271,7 @@ def add_cpt_codes_to_ecw_interface(page, cpt_codes):
                 
                 if not code_field_found:
                     print(f"Could not find * row field for CPT code {cpt_code}")
-                    page.screenshot(path=f"debug_no_star_row_{i+1}.png")
+                    print(f"Debug: No star row found for CPT {i+1}")
                     continue
                 
                 # Now add modifiers to the row that was just created/populated
@@ -310,9 +366,7 @@ def add_cpt_codes_to_ecw_interface(page, cpt_codes):
                 print(f"Error adding CPT code {i+1}: {e}")
                 continue
             
-            # Take screenshot after each CPT code
-            page.screenshot(path=f"after_cpt_{i+1}_{cpt_code}.png")
-            print(f"Screenshot: after_cpt_{i+1}_{cpt_code}.png")
+            print(f"CPT code {cpt_code} populated in row {i+1}")
             
             # Click safe area after processing each CPT code
             try:
@@ -321,12 +375,12 @@ def add_cpt_codes_to_ecw_interface(page, cpt_codes):
             except:
                 pass
         
-        print(f"\nCompleted adding {len(cpt_codes)-1} CPT codes")
-        page.screenshot(path="final_cpt_result.png")
+        print(f"\nCompleted adding {len(cpt_codes)} CPT codes")
+        print("CPT population completed")
         
     except Exception as e:
         print(f"Error in CPT population: {e}")
-        page.screenshot(path="cpt_error.png")
+        print("CPT population error occurred")
 
 def add_icd_code(page, icd_code="A42.1"):
     """Add ICD code to ECW interface"""
@@ -373,40 +427,44 @@ def add_icd_code(page, icd_code="A42.1"):
     except Exception as e:
         print(f"Error adding ICD code: {e}")
 
-def display_clinical_notes():
-    """Display clinical notes from notes.txt"""
-    try:
-        notes_content = bedrock_cpt_predictor.read_text_file('notes.txt')
-        print("=" * 50)
-        print("CLINICAL NOTES FROM notes.txt:")
-        print("=" * 50)
-        print(notes_content[:1000] + ("..." if len(notes_content) > 1000 else ""))
-        print("=" * 50)
-    except Exception as e:
-        print(f"Could not read notes.txt: {e}")
+def display_clinical_notes(clinical_notes):
+    """Display the extracted clinical notes"""
+    print("=" * 50)
+    print("EXTRACTED CLINICAL NOTES:")
+    print("=" * 50)
+    if clinical_notes and len(clinical_notes.strip()) > 50:
+        print(clinical_notes[:1000] + ("..." if len(clinical_notes) > 1000 else ""))
+    else:
+        print("No clinical notes available or notes too short")
+        print("Falling back to notes.txt if available...")
+        try:
+            notes_content = bedrock_cpt_predictor.read_text_file('notes.txt')
+            print("CLINICAL NOTES FROM notes.txt:")
+            print(notes_content[:1000] + ("..." if len(notes_content) > 1000 else ""))
+        except Exception as e:
+            print(f"Could not read notes.txt: {e}")
+    print("=" * 50)
 
-def populate_cpt_and_icd_codes(page, config):
+def populate_cpt_and_icd_codes(page, clinical_notes):
     """Main function to populate CPT and ICD codes"""
     print("\n" + "=" * 60)
     print("STARTING CPT AND ICD CODE POPULATION")
     print("=" * 60)
     
     # Display clinical notes
-    display_clinical_notes()
+    display_clinical_notes(clinical_notes)
     
-    # Get CPT code predictions from Bedrock
-    predicted_cpt_codes = get_predicted_cpt_codes(config)
+    # Get CPT code predictions from Bedrock using extracted notes
+    predicted_cpt_codes = get_predicted_cpt_codes(clinical_notes)
     
-    # Add CPT codes starting from second code
-    if predicted_cpt_codes and len(predicted_cpt_codes) > 1:
-        print("\nUSING BEDROCK PREDICTED CPT CODES (starting from second code)")
+    # Add CPT codes
+    if predicted_cpt_codes and len(predicted_cpt_codes) > 0:
+        print(f"\nUSING BEDROCK PREDICTED CPT CODES ({len(predicted_cpt_codes)} codes)")
         add_cpt_codes_to_ecw_interface(page, predicted_cpt_codes)
-    elif predicted_cpt_codes and len(predicted_cpt_codes) == 1:
-        print("\nONLY ONE CPT CODE FROM BEDROCK - no second code to add")
     else:
         print("\nNO CPT CODES FROM BEDROCK")
         print("Make sure you have:")
-        print("1. notes.txt file with clinical notes")
+        print("1. Valid clinical notes extracted")
         print("2. AWS credentials configured")
         print("3. Bedrock model access enabled")
     
@@ -416,4 +474,3 @@ def populate_cpt_and_icd_codes(page, config):
     print("\n" + "=" * 60)
     print("CPT AND ICD CODE POPULATION COMPLETED")
     print("=" * 60)
-    

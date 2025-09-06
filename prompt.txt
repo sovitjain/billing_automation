@@ -1,0 +1,42 @@
+
+Clear your memory. 
+
+Please add in your memory
+Medicare 1st visit 
+cpt 99213 modifier first 25
+cpt 91122
+cpt 97750 modifier first 59 modifier second GP
+cpt 97032 modifier first 59 modifier second GP
+
+Medicare 2nd visit 
+cpt 99213 modifier first 25
+cpt 51784
+cpt 97032 modifier first 59 modifier second GP
+
+Medicare 3rd visit and all other visits after this will have codes 
+cpt 99213 modifier first 25
+cpt 90912
+cpt 97032 modifier first 59 modifier second GP
+
+
+Commercial
+cpt 99213 modifier first 25
+cpt 91122
+cpt 51784
+cpt 97750 modifier first 59 modifier second GP
+cpt 97032 modifier first 59 modifier second GP
+
+Remove cpt 91122 if Anorectal manometry was not done, deferred, cancelled, or unavailable
+
+For these notes in a Commercial plan predict me the cpt code: {notes}. Give me code and modifier, in a json response. 
+
+IMPORTANT: If the notes mention that Anorectal manometry was "deferred", "cancelled", "not available", "not done", or any similar language, DO NOT include CPT 91122 even if it appears in a procedure codes list. Only include CPT 91122 if the notes clearly indicate that Anorectal manometry was actually performed. 
+
+You decide based on the clinical narrative whether the Anorectal manometry was actually done or not. I am going to use output programmatically.
+
+Rules for JSON response:
+1. Always use "modifier1" for the first modifier and "modifier2" for the second modifier
+2. Only include modifier fields if they are needed
+3. Each CPT code should be a separate object in the array
+4. Return valid JSON only - no additional text or explanations outside the JSON
+5. Ensure proper JSON formatting with quotes around all strings
