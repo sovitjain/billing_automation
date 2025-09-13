@@ -3,6 +3,24 @@ Claims Lookup Module
 Handles claim lookup operations based on claim ID in ECW
 """
 
+import configparser
+import os
+
+def load_config():
+    """Load configuration from config.properties"""
+    config = configparser.ConfigParser()
+    config.read('config.properties')
+    return config
+
+def get_claim_id():
+    """Get claim ID from config.properties"""
+    try:
+        config = load_config()
+        return config.get('CLAIMS', 'claim_id', fallback='38939')
+    except Exception as e:
+        print(f"Error reading claim ID from config: {e}")
+        return '38939'  # Default fallback
+
 def perform_claims_lookup(page, screenshot=True):
     """
     Perform initial claims lookup
@@ -127,18 +145,21 @@ def perform_main_lookup(page):
         print(f"Error clicking main Lookup button: {e}")
         return False
 
-def select_claim(page, claim_number="38939"):
+def select_claim(page, claim_number=None):
     """
     Select specific claim from the results with enhanced searching
     
     Args:
         page: Playwright page object
-        claim_number: Claim number to select
+        claim_number: Claim number to select (if None, reads from config)
     
     Returns:
         bool: True if claim selected successfully, False otherwise
     """
     try:
+        if claim_number is None:
+            claim_number = get_claim_id()
+        
         print(f"Looking for claim# {claim_number}...")
         page.wait_for_timeout(2000)
         
@@ -233,13 +254,13 @@ def select_claim(page, claim_number="38939"):
         print(f"Error clicking claim# {claim_number}: {e}")
         return False
 
-def complete_claims_lookup_workflow(page, claim_number="38939", patient_name="", screenshot=False):
+def complete_claims_lookup_workflow(page, claim_number=None, patient_name="", screenshot=False):
     """
     Complete the entire claims lookup workflow - focus on claim number only
     
     Args:
         page: Playwright page object
-        claim_number: Claim number to select
+        claim_number: Claim number to select (if None, reads from config)
         patient_name: Not used (kept for compatibility)
         screenshot: Whether to take screenshots
     
@@ -247,6 +268,8 @@ def complete_claims_lookup_workflow(page, claim_number="38939", patient_name="",
         bool: True if entire workflow successful, False otherwise
     """
     try:
+        if claim_number is None:
+            claim_number = get_claim_id()
         # Step 1: Initial lookup
         if not perform_claims_lookup(page, screenshot):
             return False

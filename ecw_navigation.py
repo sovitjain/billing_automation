@@ -195,17 +195,19 @@ def set_service_dates(page, target_date, screenshot=False):
                                 print(f"Found month dropdown: {dropdown_selector}")
                                 
                                 
-                                # Try different ways to select August
-                                august_options = [
-                                    "Aug",  # Most likely based on your screenshot
-                                    "August",
-                                    "8",    # August as number
-                                    "08",   # Zero-padded August
-                                    "7",    # 0-indexed August (Jan=0, Aug=7)
+                                # Try different ways to select the target month
+                                month_short_names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", 
+                                                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+                                month_options = [
+                                    month_short_names[target_month - 1],  # Short name (Sep for September)
+                                    target_month_name,  # Full name (September)
+                                    str(target_month),    # Month as number (9)
+                                    f"{target_month:02d}",   # Zero-padded month (09)
+                                    str(target_month - 1),    # 0-indexed month (8 for September)
                                 ]
                                 
                                 
-                                for option in august_options:
+                                for option in month_options:
                                     try:
                                         print(f"Attempting to select month option: '{option}'")
                                         

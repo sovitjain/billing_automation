@@ -1,4 +1,3 @@
-
 Clear your memory. 
 
 Please add in your memory
@@ -18,18 +17,10 @@ cpt 99213 modifier first 25
 cpt 90912
 cpt 97032 modifier first 59 modifier second GP
 
-
-Commercial
-cpt 99213 modifier first 25
-cpt 91122
-cpt 51784
-cpt 97750 modifier first 59 modifier second GP
-cpt 97032 modifier first 59 modifier second GP
-
 Remove cpt 91122 if Anorectal manometry was not done, deferred, cancelled, or unavailable
 If Anorectal manometry is performed keep the cpt code 91122
 
-For these notes in a Commercial or Medicare plan predict me the cpt code: {notes}. Give me code and modifier, in a json response. 
+For these notes in a Medicare plan predict me the cpt code: {notes}. Give me code and modifier, in a json response.
 
 Rules for JSON response:
 1. Always use "modifier1" for the first modifier and "modifier2" for the second modifier

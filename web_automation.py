@@ -158,7 +158,7 @@ def main():
     headless = config.getboolean('BROWSER', 'headless', fallback=False)
     screenshot = config.getboolean('BROWSER', 'screenshot', fallback=True)
     target_date = config.get('DEFAULT', 'target_date')
-    claim_number = config.get('DEFAULT', 'claim_number', fallback='38939')
+    claim_number = config.get('CLAIMS', 'claim_id', fallback='38939')
     patient_name = config.get('DEFAULT', 'patient_name', fallback='')
     
     print(f"Configuration loaded:")
@@ -217,19 +217,51 @@ def main():
             print("=" * 60)
             
             if not complete_claims_lookup_workflow(page, claim_number, "", screenshot):
-                print("Claims lookup failed. Exiting...")
-                return 1
+                print("Claims lookup failed. Continuing with next steps...")
+                # Continue execution instead of exiting
             
-            # Step 6: Extract Progress Notes
+            # Step 6: Extract Progress Notes with retry logic
             print("\n" + "=" * 60)
             print("STEP 6: EXTRACT PROGRESS NOTES")
             print("=" * 60)
             
-            clinical_notes = extract_progress_notes(page, screenshot)
+            clinical_notes = None
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                print(f"Progress Notes extraction attempt {attempt + 1}/{max_retries}")
+                
+                try:
+                    clinical_notes = extract_progress_notes(page, screenshot)
+                    
+                    if clinical_notes and len(clinical_notes.strip()) >= 50:
+                        print(f"SUCCESS: Progress Notes extracted successfully ({len(clinical_notes)} characters)")
+                        break
+                    else:
+                        print(f"ATTEMPT {attempt + 1}: Extracted notes too short or empty")
+                        if attempt < max_retries - 1:
+                            print("Retrying progress notes extraction...")
+                            page.wait_for_timeout(2000)  # Wait 2 seconds before retry
+                except Exception as e:
+                    print(f"ATTEMPT {attempt + 1}: Error during extraction - {e}")
+                    if attempt < max_retries - 1:
+                        print("Retrying progress notes extraction...")
+                        page.wait_for_timeout(2000)
             
             if not clinical_notes or len(clinical_notes.strip()) < 50:
-                print("Progress Notes extraction failed or returned insufficient content")
-                clinical_notes = "No clinical notes extracted - using fallback"
+                print("=" * 60)
+                print("CRITICAL: Progress Notes extraction FAILED after 3 attempts")
+                print("MANUAL INTERVENTION REQUIRED")
+                print("Please manually extract progress notes or check the web page.")
+                print("=" * 60)
+                
+                # Wait for human input instead of proceeding
+                user_input = input("Enter 'c' to continue with empty notes, or 'q' to quit: ").lower()
+                if user_input == 'q':
+                    print("Automation stopped by user request.")
+                    return 1
+                else:
+                    clinical_notes = "No clinical notes extracted - manual intervention required"
             else:
                 # Debug: Check anorectal manometry status in extracted clinical notes
                 print("\n" + "=" * 60)

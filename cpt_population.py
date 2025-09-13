@@ -34,17 +34,28 @@ def get_predicted_cpt_codes(clinical_notes):
             print("Please check the Progress Notes extraction process.")
             return None
         else:
-            # Append "Commercial plan" to the notes before sending to Bedrock
-            notes = f"Commercial plan: {clinical_notes}"
-            print(f"Using extracted clinical notes with Commercial plan prefix ({len(notes)} characters)")
+            # Get insurance plan from config
+            insurance_plan = config.get('CLAIMS', 'insurance_plan', fallback='Commercial')
+            # Append insurance plan to the notes before sending to Bedrock
+            notes = f"{insurance_plan} plan: {clinical_notes}"
+            print(f"Using extracted clinical notes with {insurance_plan} plan prefix ({len(notes)} characters)")
         
-        # Read prompt from prompt.txt (with fallback to default)
+        # Read insurance-specific prompt file
         try:
-            bedrock_prompt = bedrock_cpt_predictor.read_text_file('prompt.txt')
-            print("Loaded custom prompt from prompt.txt")
+            # Try insurance-specific prompt file first
+            prompt_file = f'prompt_{insurance_plan.lower()}.txt'
+            bedrock_prompt = bedrock_cpt_predictor.read_text_file(prompt_file)
+            print(f"Loaded {insurance_plan}-specific prompt from {prompt_file}")
         except:
-            bedrock_prompt = bedrock_cpt_predictor.get_default_prompt()
-            print("Using default prompt")
+            try:
+                # Fallback to generic prompt.txt
+                bedrock_prompt = bedrock_cpt_predictor.read_text_file('prompt.txt')
+                # Replace the generic "Commercial or Medicare plan" with the specific insurance plan
+                bedrock_prompt = bedrock_prompt.replace("Commercial or Medicare plan", f"{insurance_plan} plan")
+                print(f"Loaded generic prompt from prompt.txt and customized for {insurance_plan} plan")
+            except:
+                bedrock_prompt = bedrock_cpt_predictor.get_default_prompt()
+                print("Using default prompt")
         
         # Get AWS region from config
         aws_region = config.get('DEFAULT', 'aws_region', fallback='us-east-1')
@@ -54,7 +65,11 @@ def get_predicted_cpt_codes(clinical_notes):
         # Get predictions from Bedrock with retry logic
         print("Calling Bedrock API...")
         max_retries = 3
-        min_expected_codes = 4  # Commercial plan should have at least 4 CPT codes
+        # Set minimum expected codes based on insurance plan
+        if insurance_plan.lower() == 'commercial':
+            min_expected_codes = 4  # Commercial plan should have at least 4 CPT codes
+        else:  # Medicare or other plans
+            min_expected_codes = 3  # Medicare typically has fewer codes
         
         for attempt in range(max_retries):
             print(f"Bedrock attempt {attempt + 1}/{max_retries}")
@@ -81,7 +96,7 @@ def get_predicted_cpt_codes(clinical_notes):
                     for item in temp_parsed:
                         if isinstance(item, dict):
                             cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
-                            if not cpt_code_value.strip():
+                            if not str(cpt_code_value).strip():
                                 missing_cpt_codes += 1
                 elif isinstance(temp_parsed, dict):
                     if 'cpt_codes' in temp_parsed:
@@ -90,7 +105,7 @@ def get_predicted_cpt_codes(clinical_notes):
                         for item in code_list:
                             if isinstance(item, dict):
                                 cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
-                                if not cpt_code_value.strip():
+                                if not str(cpt_code_value).strip():
                                     missing_cpt_codes += 1
                     elif 'codes' in temp_parsed:
                         code_list = temp_parsed['codes']
@@ -98,7 +113,7 @@ def get_predicted_cpt_codes(clinical_notes):
                         for item in code_list:
                             if isinstance(item, dict):
                                 cpt_code_value = item.get('cpt') or item.get('cptCode') or item.get('code') or ''
-                                if not cpt_code_value.strip():
+                                if not str(cpt_code_value).strip():
                                     missing_cpt_codes += 1
             
             print(f"Attempt {attempt + 1}: Received {code_count} CPT codes, {missing_cpt_codes} missing CPT code values")
@@ -121,7 +136,7 @@ def get_predicted_cpt_codes(clinical_notes):
                 if attempt < max_retries - 1:
                     print("Retrying with enhanced prompt...")
                     # Add emphasis to the prompt for retry
-                    enhanced_prompt = bedrock_prompt + f"\n\nIMPORTANT: For Commercial plan, you MUST provide at least {min_expected_codes} CPT codes. Always include 99213 for office visit. If you only provided {code_count} codes, please add the missing codes."
+                    enhanced_prompt = bedrock_prompt + f"\n\nIMPORTANT: For {insurance_plan} plan, you MUST provide at least {min_expected_codes} CPT codes. Always include 99213 for office visit. If you only provided {code_count} codes, please add the missing codes."
                     bedrock_prompt = enhanced_prompt
                 else:
                     print(f"Using result with {code_count} codes (all retries exhausted)")
@@ -464,13 +479,9 @@ def display_clinical_notes(clinical_notes):
         print(clinical_notes[:1000] + ("..." if len(clinical_notes) > 1000 else ""))
     else:
         print("No clinical notes available or notes too short")
-        print("Falling back to notes.txt if available...")
-        try:
-            notes_content = bedrock_cpt_predictor.read_text_file('notes.txt')
-            print("CLINICAL NOTES FROM notes.txt:")
-            print(notes_content[:1000] + ("..." if len(notes_content) > 1000 else ""))
-        except Exception as e:
-            print(f"Could not read notes.txt: {e}")
+        print("CRITICAL: Cannot proceed without proper clinical notes.")
+        print("The Progress Notes extraction process must be fixed before continuing.")
+        print("Manual intervention is required.")
     print("=" * 50)
 
 def populate_cpt_and_icd_codes(page, clinical_notes):

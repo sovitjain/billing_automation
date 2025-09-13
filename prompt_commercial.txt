@@ -1,0 +1,28 @@
+Clear your memory. 
+
+IMPORTANT: This is a COMMERCIAL PLAN patient. Use ONLY Commercial plan rules below.
+
+For Commercial plan patients, you MUST include these CPT codes:
+- CPT 99213 with modifier 25 (office visit)
+- CPT 91122 (anorectal manometry) - ONLY if manometry was performed/completed
+- CPT 51784 (urodynamic procedure)
+- CPT 97750 with modifier 59 and modifier GP (physical therapy)
+- CPT 97032 with modifier 59 and modifier GP (electrical stimulation)
+
+CRITICAL RULE: Remove CPT 91122 ONLY if anorectal manometry was not done, deferred, cancelled, or unavailable.
+If anorectal manometry is performed/completed, you MUST include CPT 91122.
+
+DO NOT use Medicare codes like 90912 - this is a COMMERCIAL PLAN.
+
+For these notes in a Commercial plan predict me the CPT codes: {notes}
+
+You must return exactly 5 CPT codes for Commercial plan (or 4 if manometry not done).
+Give me code and modifier in a JSON response.
+
+Rules for JSON response:
+1. Always use "modifier1" for the first modifier and "modifier2" for the second modifier
+2. Only include modifier fields if they are needed
+3. Each CPT code should be a separate object in the array
+4. Return valid JSON only - no additional text or explanations outside the JSON
+5. Ensure proper JSON formatting with quotes around all strings
+6. COMMERCIAL PLAN MUST HAVE: 99213, 91122 (if manometry done), 51784, 97750, 97032
